@@ -46,7 +46,7 @@ RepoSense becomes a **visual command center** that makes Git feel effortless aga
 ### ⚡ Commit & Push Automation
 - ✅ One-click commit with AI-suggested messages
 - ✅ Auto-stage all modified files
-- ✅ Diff preview before committing
+- ✅ Diff preview before committing 
 - ✅ Auto-push option
 - ✅ Push retry on failure
 - ✅ Offline commit queue
