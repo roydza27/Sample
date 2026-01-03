@@ -15,3 +15,12 @@ dist/
 .idea/
 *.log
 .DS_Store
+# SQLite Databases
+*.db
+*.sqlite
+*.sqlite3
+
+# SQLite temporary/journal files
+*.db-journal
+*.db-shm
+*.db-wal
