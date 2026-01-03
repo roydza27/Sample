@@ -8,14 +8,82 @@ import {
   Clock,
   Flame,
   CheckCircle,
-  BarChart3
+  BarChart3,
+  XCircle
 } from 'lucide-react';
 
 function AnalyticsPanel({ analytics, onRefresh }) {
+  // Loading state
   if (!analytics) {
     return (
-      <div className="card">
-        <p className="text-gray-400 text-sm">Loading analytics...</p>
+      <div className="space-y-6">
+        <div className="card">
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <BarChart3 className="w-12 h-12 text-primary-500 mx-auto mb-4 animate-pulse" />
+              <p className="text-gray-400 text-sm">Loading analytics...</p>
+              <button 
+                onClick={onRefresh} 
+                className="btn-secondary text-sm mt-4"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (analytics.error) {
+    return (
+      <div className="space-y-6">
+        <div className="card">
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <XCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+              <p className="text-red-400 text-sm mb-2">Failed to load analytics</p>
+              <p className="text-gray-500 text-xs mb-4">{analytics.error}</p>
+              <button 
+                onClick={onRefresh} 
+                className="btn-primary text-sm"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Empty state - no commits yet
+  if (analytics.totalCommits === 0) {
+    return (
+      <div className="space-y-6">
+        <div className="card">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center space-x-3">
+              <BarChart3 className="w-6 h-6 text-primary-500" />
+              <div>
+                <h2 className="text-xl font-bold text-white">Analytics Dashboard</h2>
+                <p className="text-sm text-gray-400">Your Git productivity metrics</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-gray-900 border border-gray-700 rounded-lg p-8 text-center">
+            <GitCommit className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-white mb-2">No commits yet</h3>
+            <p className="text-gray-400 text-sm mb-4">
+              Make your first commit to start tracking your productivity!
+            </p>
+            <div className="text-xs text-gray-500">
+              Go to the Dashboard tab and commit some changes to see your analytics.
+            </div>
+          </div>
+        </div>
       </div>
     );
   }

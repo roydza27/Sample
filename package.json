@@ -8,22 +8,38 @@
     "server": "node server/index.js",
     "client": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vite --port 3000",
+    "test:server": "node server/index.js"
   },
   "dependencies": {
+    "better-sqlite3": "^12.5.0",
     "cors": "^2.8.5",
     "express": "^4.18.2",
+    "lowdb": "^7.0.1",
     "lucide-react": "^0.263.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "simple-git": "^3.30.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.2.1",
-    "autoprefixer": "^10.4.16",
+    "@vitejs/plugin-react": "^4.7.0",
+    "autoprefixer": "^10.4.23",
     "concurrently": "^8.2.2",
     "postcss": "^8.4.32",
-    "tailwindcss": "^3.4.0",
-    "vite": "^5.0.8"
-  }
+    "tailwindcss": "^3.4.19",
+    "vite": "^5.4.21"
+  },
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/roydza27/Sample.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/roydza27/Sample/issues"
+  },
+  "homepage": "https://github.com/roydza27/Sample#readme"
 }

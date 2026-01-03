@@ -3,13 +3,12 @@ import { Activity, CheckCircle, XCircle, Info } from 'lucide-react';
 
 function ActivityFeed({ logs }) {
   const getLogIcon = (log) => {
-    if (log.success === 1 || log.action.startsWith('✓')) {
-      return <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />;
-    } else if (log.success === 0 || log.action.startsWith('✗')) {
-      return <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />;
-    }
-    return <Info className="w-4 h-4 text-blue-500 flex-shrink-0" />;
+    const action = log?.action || "";  // never undefined
+    if (action.startsWith("✓")) return "✔️";
+    if (action.startsWith("❌") || action.startsWith("✗")) return "❗";
+    return "ℹ️";
   };
+
 
   const formatTime = (timestamp) => {
     const date = new Date(timestamp);
@@ -35,7 +34,7 @@ function ActivityFeed({ logs }) {
         ) : (
           logs.map((log) => (
             <div
-              key={log.id || log.timestamp}
+              key={log.id}
               className="bg-gray-900 rounded-lg p-3 border border-gray-700 hover:border-gray-600 transition-colors"
             >
               <div className="flex items-start space-x-2">

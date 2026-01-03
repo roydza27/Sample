@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { GitBranch, Link2, CheckCircle, XCircle, RefreshCw, Loader } from 'lucide-react';
+import { GitBranch, Link2, CheckCircle, XCircle, RefreshCw, Loader, Trash2 } from 'lucide-react';
 
 const API_BASE = '/api';
 
@@ -121,6 +121,39 @@ function RepoPanel({ workspacePath, repoData, isLoading, onRefresh, onLog }) {
         onRefresh();
       } else {
         onLog(`✗ Failed to create branch: ${data.error}`, 'error');
+      }
+    } catch (error) {
+      onLog(`✗ Error: ${error.message}`, 'error');
+    }
+  };
+
+  const handleDeleteBranch = async (branchName) => {
+    // Prevent deleting current branch
+    if (branchName === repoData.currentBranch) {
+      onLog('✗ Cannot delete the current branch', 'error');
+      return;
+    }
+
+    // Confirm deletion
+    const confirmed = window.confirm(`Are you sure you want to delete branch "${branchName}"?`);
+    if (!confirmed) return;
+
+    onLog(`Deleting branch: ${branchName}...`, 'info');
+    
+    try {
+      const response = await fetch(`${API_BASE}/repo/delete-branch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspacePath, branchName })
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        onLog(`✓ Branch deleted: ${branchName}`, 'success');
+        onRefresh();
+      } else {
+        onLog(`✗ Failed to delete branch: ${data.error}`, 'error');
       }
     } catch (error) {
       onLog(`✗ Error: ${error.message}`, 'error');
@@ -320,6 +353,36 @@ function RepoPanel({ workspacePath, repoData, isLoading, onRefresh, onLog }) {
               </div>
             </div>
           )}
+
+          {/* Delete Branch */}
+          <div className="pt-3 border-t border-gray-700">
+            <label className="text-xs text-gray-400 block mb-2">Delete Branch</label>
+            <div className="flex space-x-2">
+              <select
+                value={selectedBranch}
+                onChange={(e) => setSelectedBranch(e.target.value)}
+                className="input-field flex-1 text-sm"
+              >
+                {repoData.branches.filter(b => b !== repoData.currentBranch).map(branch => (
+                  <option key={branch} value={branch}>
+                    {branch}
+                  </option>
+                ))}
+              </select>
+              
+              <button
+                onClick={() => handleDeleteBranch(selectedBranch)}
+                disabled={selectedBranch === repoData.currentBranch || repoData.branches.length <= 1}
+                className="btn-secondary text-sm flex items-center space-x-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-700"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Delete</span>
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              Cannot delete current branch ({repoData.currentBranch})
+            </p>
+          </div>
         </div>
       </div>
     </div>

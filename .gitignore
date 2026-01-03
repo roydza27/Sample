@@ -8,3 +8,10 @@ build/
 Thumbs.db
 .vscode/
 .idea/
+node_modules/
+dist/
+.env
+.vscode/
+.idea/
+*.log
+.DS_Store

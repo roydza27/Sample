@@ -23,6 +23,11 @@ function App() {
       loadAnalytics();
       loadLogs();
     }
+    // if (repoData) {
+    //   // Fallback to empty string if remoteUrl is null/undefined
+    //   setRemoteUrl(repoData.remoteUrl || '');
+    //   setSelectedBranch(repoData.currentBranch || '');
+    // }
   }, [workspacePath]);
 
   const detectRepo = async () => {
@@ -38,17 +43,10 @@ function App() {
         body: JSON.stringify({ workspacePath })
       });
 
-      // Log the raw response for debugging
-      const rawText = await response.text();
-      console.log("Raw response from /api/repo/detect:", rawText);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-      // Check if the response is OK (status 200-299)
-      if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`);
-      }
-
-      // Try to parse the response
-      const data = JSON.parse(rawText);
+      // FIX: Parse as JSON directly to avoid stream consumption issues
+      const data = await response.json();
 
       if (data.isRepo) {
         setRepoData(data);
@@ -58,10 +56,11 @@ function App() {
         addLog('✗ No Git repository found', 'error');
       }
     } catch (error) {
-      // Handle errors (e.g., network issues, invalid JSON)
       console.error("Error in detectRepo:", error);
       addLog(`✗ Error: ${error.message}`, 'error');
+      setRepoData(null);
     } finally {
+      // FIX: Ensure loading is cleared even on network failure
       setIsLoading(false);
     }
   };
@@ -88,11 +87,14 @@ function App() {
 
   const addLog = (message, type = 'info') => {
     const newLog = {
-      id: Date.now(),
+      // FIX: Unique ID using timestamp + random string
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       timestamp: new Date().toISOString(),
       action: message,
       success: type === 'success' ? 1 : type === 'error' ? 0 : null
     };
+    
+    // FIX: Use functional update to avoid log-dependency loops
     setLogs(prev => [newLog, ...prev.slice(0, 49)]);
   };
 
