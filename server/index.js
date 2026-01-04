@@ -296,7 +296,7 @@ app.post('/api/repo/delete-branch', async (req, res) => {
 
 // API: Commit and push
 app.post('/api/repo/commit-push', async (req, res) => {
-  const { workspacePath, message, autoPush } = req.body;
+  const { workspacePath, message, autoPush, forcePush } = req.body;
   
   try {
     // Stage all changes
@@ -342,12 +342,26 @@ app.post('/api/repo/commit-push', async (req, res) => {
     `).run(workspacePath, commitHash, message, new Date().toISOString(), filesChanged, 0);
 
     let pushResult = { success: false };
+    let pullNeeded = false;
+    
     if (autoPush) {
-      // Try to push
+      // Get current branch
       const branchResult = await executeGit('git rev-parse --abbrev-ref HEAD', workspacePath);
       const currentBranch = branchResult.success ? branchResult.output : 'main';
       
-      pushResult = await executeGit(`git push origin ${currentBranch}`, workspacePath);
+      // Try normal push first
+      const pushCommand = forcePush 
+        ? `git push origin ${currentBranch} --force`
+        : `git push origin ${currentBranch}`;
+      
+      pushResult = await executeGit(pushCommand, workspacePath);
+      
+      // If push failed and not force push, check if we need to pull
+      if (!pushResult.success && !forcePush) {
+        if (pushResult.error.includes('rejected') || pushResult.error.includes('non-fast-forward')) {
+          pullNeeded = true;
+        }
+      }
       
       // Update push success in database
       if (pushResult.success) {
@@ -377,7 +391,9 @@ app.post('/api/repo/commit-push', async (req, res) => {
       filesChanged,
       linesAdded,
       linesRemoved,
-      pushError: pushResult.success ? null : pushResult.error
+      pushError: pushResult.success ? null : pushResult.error,
+      pullNeeded: pullNeeded,
+      forcePushed: forcePush && pushResult.success
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -386,20 +402,158 @@ app.post('/api/repo/commit-push', async (req, res) => {
 
 // API: Push only
 app.post('/api/repo/push', async (req, res) => {
+  const { workspacePath, forcePush } = req.body;
+  
+  const branchResult = await executeGit('git rev-parse --abbrev-ref HEAD', workspacePath);
+  const currentBranch = branchResult.success ? branchResult.output : 'main';
+  
+  const pushCommand = forcePush 
+    ? `git push origin ${currentBranch} --force`
+    : `git push origin ${currentBranch}`;
+  
+  const pushResult = await executeGit(pushCommand, workspacePath);
+  
+  if (pushResult.success) {
+    res.json({ 
+      success: true, 
+      message: forcePush ? 'Force pushed successfully' : 'Pushed successfully',
+      forcePushed: forcePush 
+    });
+  } else {
+    const needsPull = pushResult.error.includes('rejected') || pushResult.error.includes('non-fast-forward');
+    res.status(500).json({ 
+      success: false, 
+      error: pushResult.error,
+      friendlyError: explainGitError(pushResult.error + ' ' + pushResult.stderr),
+      needsPull: needsPull
+    });
+  }
+});
+
+// API: Pull from remote
+app.post('/api/repo/pull', async (req, res) => {
+  const { workspacePath, rebase } = req.body;
+  
+  const branchResult = await executeGit('git rev-parse --abbrev-ref HEAD', workspacePath);
+  const currentBranch = branchResult.success ? branchResult.output : 'main';
+  
+  const pullCommand = rebase 
+    ? `git pull origin ${currentBranch} --rebase`
+    : `git pull origin ${currentBranch}`;
+  
+  const pullResult = await executeGit(pullCommand, workspacePath);
+  
+  if (pullResult.success) {
+    res.json({ 
+      success: true, 
+      message: 'Pulled successfully',
+      output: pullResult.output
+    });
+  } else {
+    res.status(500).json({ 
+      success: false, 
+      error: pullResult.error,
+      friendlyError: explainGitError(pullResult.error + ' ' + pullResult.stderr)
+    });
+  }
+});
+
+// API: Sync branch (pull then push)
+app.post('/api/repo/sync', async (req, res) => {
+  const { workspacePath, forcePush } = req.body;
+  
+  try {
+    const branchResult = await executeGit('git rev-parse --abbrev-ref HEAD', workspacePath);
+    const currentBranch = branchResult.success ? branchResult.output : 'main';
+    
+    // First, pull
+    const pullResult = await executeGit(`git pull origin ${currentBranch}`, workspacePath);
+    
+    if (!pullResult.success) {
+      // If pull fails, check if it's because of conflicts
+      if (pullResult.error.includes('conflict') || pullResult.error.includes('CONFLICT')) {
+        return res.status(500).json({
+          success: false,
+          error: 'Merge conflicts detected. Please resolve manually.',
+          hasConflicts: true
+        });
+      }
+    }
+    
+    // Then push
+    const pushCommand = forcePush 
+      ? `git push origin ${currentBranch} --force`
+      : `git push origin ${currentBranch}`;
+    
+    const pushResult = await executeGit(pushCommand, workspacePath);
+    
+    if (pushResult.success) {
+      res.json({
+        success: true,
+        message: 'Synced successfully',
+        pulled: pullResult.success,
+        pushed: true
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: pushResult.error,
+        pulled: pullResult.success,
+        pushed: false
+      });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// API: Set upstream branch
+app.post('/api/repo/set-upstream', async (req, res) => {
   const { workspacePath } = req.body;
   
   const branchResult = await executeGit('git rev-parse --abbrev-ref HEAD', workspacePath);
   const currentBranch = branchResult.success ? branchResult.output : 'main';
   
-  const pushResult = await executeGit(`git push origin ${currentBranch}`, workspacePath);
+  const upstreamResult = await executeGit(`git push --set-upstream origin ${currentBranch}`, workspacePath);
   
-  if (pushResult.success) {
-    res.json({ success: true, message: 'Pushed successfully' });
+  if (upstreamResult.success) {
+    res.json({ 
+      success: true, 
+      message: `Set upstream for branch ${currentBranch}`,
+      branch: currentBranch
+    });
   } else {
     res.status(500).json({ 
       success: false, 
-      error: pushResult.error,
-      friendlyError: explainGitError(pushResult.error + ' ' + pushResult.stderr)
+      error: upstreamResult.error
+    });
+  }
+});
+
+// API: Resolve conflicts by accepting theirs or ours
+app.post('/api/repo/resolve-conflicts', async (req, res) => {
+  const { workspacePath, strategy } = req.body; // strategy: 'ours' or 'theirs'
+  
+  let resolveCommand;
+  if (strategy === 'ours') {
+    resolveCommand = 'git checkout --ours . && git add .';
+  } else if (strategy === 'theirs') {
+    resolveCommand = 'git checkout --theirs . && git add .';
+  } else {
+    return res.status(400).json({ success: false, error: 'Invalid strategy' });
+  }
+  
+  const resolveResult = await executeGit(resolveCommand, workspacePath);
+  
+  if (resolveResult.success) {
+    res.json({ 
+      success: true, 
+      message: `Conflicts resolved using ${strategy} version`
+    });
+  } else {
+    res.status(500).json({ 
+      success: false, 
+      error: resolveResult.error
     });
   }
 });
@@ -414,16 +568,16 @@ app.get('/api/analytics', (req, res) => {
     const successfulPushes = db.prepare('SELECT COUNT(*) as count FROM commits WHERE push_success = 1').get();
     
     // Get total files changed
-    const totalFiles = db.prepare("SELECT SUM(files_changed) as total FROM analytics WHERE action = 'commit_push'").get();
+    const totalFiles = db.prepare('SELECT SUM(files_changed) as total FROM analytics WHERE action = "commit_push"').get();
     
     // Get total lines
     const totalLines = db.prepare(`
       SELECT SUM(lines_added) as added, SUM(lines_removed) as removed 
-      FROM analytics WHERE action = 'commit_push'
+      FROM analytics WHERE action = "commit_push"
     `).get();
     
     // Get remote switches
-    const remoteSwitches = db.prepare("SELECT COUNT(*) as count FROM analytics WHERE action = 'remote_switch'").get();
+    const remoteSwitches = db.prepare('SELECT COUNT(*) as count FROM analytics WHERE action = "remote_switch"').get();
     
     // Get commit streak (simplified)
     const recentCommits = db.prepare(`
@@ -460,9 +614,9 @@ app.get('/api/analytics', (req, res) => {
     res.json({
       totalCommits: totalCommits?.count || 0,
       successfulPushes: successfulPushes?.count || 0,
-      totalFilesChanged: totalFiles?.total || 0, // Ensure this isn't null
-      linesAdded: totalLines?.added || 0,       // Ensure this isn't null
-      linesRemoved: totalLines?.removed || 0,   // Ensure this isn't null
+      totalFilesChanged: totalFiles?.total || 0,
+      linesAdded: totalLines?.added || 0,
+      linesRemoved: totalLines?.removed || 0,
       remoteSwitches: remoteSwitches?.count || 0,
       commitStreak: streak,
       timeSavedSeconds: timeSaved,

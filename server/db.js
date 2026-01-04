@@ -1,11 +1,18 @@
-import Database from 'better-sqlite3';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import Database from "better-sqlite3";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const db_metrics = new Database("C:\\Users\\royal\\Documents\\Daily-Plan-Projects\\backend-metrics\\metrics.db");
 
-// Initialize the database connection
-const db = new Database(path.join(__dirname, '../repo_sense.db'), { verbose: console.log });
+// Create table if not exists
+db_metrics.exec(`
+  CREATE TABLE IF NOT EXISTS api_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    route TEXT,
+    method TEXT,
+    status INTEGER,
+    response_time INTEGER,
+    is_error INTEGER,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+`);
 
-// Export it so other files can use it
-export default db;
+export default db_metrics;
