@@ -1,18 +1,18 @@
-import Database from "better-sqlite3";
+// import Database from "better-sqlite3";
 
-const db_metrics = new Database("C:\\Users\\royal\\Documents\\Daily-Plan-Projects\\backend-metrics\\metrics.db");
+// const db_metrics = new Database("C:\\Users\\royal\\Documents\\Daily-Plan-Projects\\backend-metrics\\metrics.db");
 
-// Create table if not exists
-db_metrics.exec(`
-  CREATE TABLE IF NOT EXISTS api_metrics (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    route TEXT,
-    method TEXT,
-    status INTEGER,
-    response_time INTEGER,
-    is_error INTEGER,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-`);
+// // Create table if not exists
+// db_metrics.exec(`
+// CREATE TABLE IF NOT EXISTS api_metrics (
+//   id INTEGER PRIMARY KEY AUTOINCREMENT,
+//   route TEXT,
+//   method TEXT,
+//   status INTEGER,
+//   response_time INTEGER,
+//   is_error INTEGER,
+//   timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+// );
+// `);
 
-export default db_metrics;
+// export default db_metrics;

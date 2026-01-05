@@ -4,15 +4,15 @@
   "description": "AI-powered GitHub control center with analytics and automation",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"npm run server\" \"npm run client\"",
     "server": "node server/index.js",
     "client": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vite --port 3000",
+    "dev": "vite --port 3000 --host",
     "test:server": "node server/index.js"
   },
   "dependencies": {
+    "axios": "^1.13.2",
     "better-sqlite3": "^12.5.0",
     "cors": "^2.8.5",
     "express": "^4.18.2",

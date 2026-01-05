@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import axios from "axios";
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
@@ -48,7 +49,101 @@ db.exec(`
     key TEXT PRIMARY KEY,
     value TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS api_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    route TEXT,
+    method TEXT,
+    status INTEGER,
+    response_time INTEGER,
+    is_error INTEGER,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `);
+
+//Metric data to be Exported to a database
+// const metrics = [];
+
+// Global middleware to track all API calls
+// app.use((req, res, next) => {
+//   const start = Date.now();
+//   res.on("finish", () => {
+//     const responseTime = Date.now() - start;
+//     const isError = res.statusCode >= 400;
+
+//     const metric = {
+//       route: req.path,
+//       method: req.method,
+//       status: res.statusCode,
+//       responseTime,
+//       isError
+//     };
+
+//     metrics.push(metric);
+//   });
+//   next();
+// });
+
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on("finish", async () => {
+    const responseTime = Date.now() - start;
+    const isError = res.statusCode >= 400;
+
+    try {
+      await axios.post("http://localhost:3002/api/metrics", {
+        route: req.originalUrl,
+        method: req.method,
+        status: res.statusCode,
+        responseTime,
+        isError,
+        sourcePort: 3001,
+      });
+      console.log(`Metric → ${req.method} ${req.originalUrl} (${responseTime}ms)`);
+    } catch {}
+  });
+  next();
+});
+
+// app.get("/api/metrics/summary", (req, res) => {
+//   const total = metrics.length;
+//   const errors = metrics.filter(m => m.isError).length;
+//   const avg = metrics.reduce((sum, m) => sum + m.responseTime, 0) / (total || 1);
+
+//   res.json({
+//     totalRequests: total,
+//     avgResponseTime: avg,
+//     errorRate: total ? (errors / total) * 100 : 0
+//   });
+// });
+
+// app.get("/api/metrics/routes", (req, res) => {
+//   const grouped = {};
+
+//   metrics.forEach(m => {
+//     if (!grouped[m.route]) {
+//       grouped[m.route] = { hits: 0, errors: 0, totalTime: 0 };
+//     }
+//     grouped[m.route].hits++;
+//     grouped[m.route].totalTime += m.responseTime;
+//     if (m.isError) grouped[m.route].errors++;
+//   });
+
+//   const stats = Object.entries(grouped).map(([route, d]) => ({
+//     route,
+//     hits: d.hits,
+//     avgResponseTime: d.totalTime / d.hits,
+//     errorPercent: (d.errors / d.hits) * 100,
+//     isSlow: (d.totalTime / d.hits) > 500
+//   }));
+
+//   res.json(stats);
+// });
+
+// app.get("/api/metrics/export", (req, res) => {
+//   res.json(metrics);
+// });
+
 
 // Helper function to execute git commands
 async function executeGit(command, cwd = null) {
@@ -227,6 +322,12 @@ app.post('/api/repo/status', async (req, res) => {
 
   res.json({ files });
 });
+
+
+
+
+
+
 
 // API: Get diff summary
 app.post('/api/repo/diff', async (req, res) => {
@@ -568,16 +669,16 @@ app.get('/api/analytics', (req, res) => {
     const successfulPushes = db.prepare('SELECT COUNT(*) as count FROM commits WHERE push_success = 1').get();
     
     // Get total files changed
-    const totalFiles = db.prepare('SELECT SUM(files_changed) as total FROM analytics WHERE action = "commit_push"').get();
+    const totalFiles = db.prepare("SELECT SUM(files_changed) as total FROM analytics WHERE action = 'commit_push'").get();
     
     // Get total lines
     const totalLines = db.prepare(`
       SELECT SUM(lines_added) as added, SUM(lines_removed) as removed 
-      FROM analytics WHERE action = "commit_push"
+      FROM analytics WHERE action = 'commit_push'
     `).get();
     
     // Get remote switches
-    const remoteSwitches = db.prepare('SELECT COUNT(*) as count FROM analytics WHERE action = "remote_switch"').get();
+    const remoteSwitches = db.prepare("SELECT COUNT(*) as count FROM analytics WHERE action = 'remote_switch'").get();
     
     // Get commit streak (simplified)
     const recentCommits = db.prepare(`
@@ -791,6 +892,15 @@ app.post('/api/ai/explain-error', (req, res) => {
   const explanation = explainGitError(error);
   res.json({ explanation });
 });
+
+app.get("/api/repo/status", (req, res) => {
+  res.json({ message: "Repo status API alive" });
+});
+
+app.get("/api/test/fast", (req, res) => res.send("Fast"));
+app.get("/api/test/slow", (req, res) => setTimeout(() => res.send("Slow"), 900));
+app.get("/api/test/error", (req, res) => res.status(500).send("Fail"));
+
 
 app.listen(PORT, () => {
   console.log(`✅ RepoSense server running on http://localhost:${PORT}`);
