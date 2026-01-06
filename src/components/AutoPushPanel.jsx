@@ -122,6 +122,7 @@ function AutoPushPanel({ workspacePath, repoData, onLog }) {
   };
 
   const formatTime = (seconds) => {
+    seconds = Number(seconds) || 0;
     if (seconds < 60) return `${seconds}s`;
     const m = Math.floor(seconds/60);
     const s = seconds % 60;
@@ -129,7 +130,8 @@ function AutoPushPanel({ workspacePath, repoData, onLog }) {
   };
 
   const formatDateTime = (isoString) => {
-    return new Date(isoString).toLocaleString('en-US', {
+    const d = new Date(isoString);
+    return isNaN(d) ? "Invalid Date" : d.toLocaleString('en-US', {
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
@@ -193,26 +195,25 @@ function AutoPushPanel({ workspacePath, repoData, onLog }) {
           <h3 className="text-sm font-semibold text-white mb-3">Active Jobs ({activeJobs.length})</h3>
 
           {activeJobs.map(job => {
-          const runTime = job.execute_at ? new Date(job.execute_at) : null;
-          const runTimeText = runTime && !isNaN(runTime) ? formatDateTime(job.execute_at) : "Invalid Date";
+            const runTime = job.execute_at ? new Date(job.execute_at) : null;
+            const runTimeText = runTime && !isNaN(runTime) ? formatDateTime(job.execute_at) : "Invalid Date";
 
-          return (
+            return (
               <div key={job.jobId} className="bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs mt-2">
-              <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between">
                   <span className="flex items-center space-x-2">
-                  {getStatusIcon(job.status)}
-                  <span>{job.status}</span>
+                    {getStatusIcon(job.status)}
+                    <span>{job.status}</span>
                   </span>
                   <button onClick={() => handleCancelJob(job.jobId)}>
-                  <XCircle className="w-4 h-4 text-red-500" />
+                    <XCircle className="w-4 h-4 text-red-500" />
                   </button>
+                </div>
+                <p className="text-gray-500">Runs at: {runTimeText}</p>
+                <p className="text-primary-400">Time Remaining: {formatTime(job.timeRemaining)}</p>
               </div>
-              <p className="text-gray-500">Runs at: {runTimeText}</p>
-              <p className="text-primary-400">Time Remaining: {job.timeRemaining ?? "0s"}</p>
-              </div>
-          );
+            );
           })}
-
         </div>
       )}
 
@@ -228,7 +229,7 @@ function AutoPushPanel({ workspacePath, repoData, onLog }) {
                 {getStatusIcon(job.status)}
                 <span>{job.status}</span>
               </span>
-              <span className="text-gray-500">{formatDateTime(job.scheduledAt)}</span>
+              <span className="text-gray-500">{formatDateTime(job.scheduled_at)}</span>
             </div>
             {job.error && <p className="text-red-400">Error: {job.error}</p>}
           </div>
