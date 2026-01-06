@@ -195,8 +195,8 @@ function AutoPushPanel({ workspacePath, repoData, onLog }) {
           <h3 className="text-sm font-semibold text-white mb-3">Active Jobs ({activeJobs.length})</h3>
 
           {activeJobs.map(job => {
-            const runTime = job.execute_at ? new Date(job.execute_at) : null;
-            const runTimeText = runTime && !isNaN(runTime) ? formatDateTime(job.execute_at) : "Invalid Date";
+            const runTime = job.executeAt ? new Date(job.executeAt) : null;
+            const runTimeText = runTime && !isNaN(runTime) ? formatDateTime(job.executeAt) : "Invalid Date";
 
             return (
               <div key={job.jobId} className="bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs mt-2">
