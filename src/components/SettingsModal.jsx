@@ -1,35 +1,50 @@
 import React, { useState, useEffect } from 'react';
 import { X, User, Mail, Folder, Save } from 'lucide-react';
 
-const API_BASE = '/api';
+const API_BASE = 'http://localhost:3001/api';
+
 
 function SettingsModal({ workspacePath, onClose, onWorkspaceChange, onLog }) {
   const [gitName, setGitName] = useState('');
   const [gitEmail, setGitEmail] = useState('');
+
   const [newWorkspacePath, setNewWorkspacePath] = useState(workspacePath);
   const [isSaving, setIsSaving] = useState(false);
+  const [autoPushHistory, setAutoPushHistory] = useState([]);
 
-  useEffect(() => {
-    loadIdentity();
-  }, [workspacePath]);
 
-  const loadIdentity = async () => {
-    if (!workspacePath) return;
-    
-    try {
-      const response = await fetch(`${API_BASE}/repo/get-identity`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspacePath })
-      });
-      
-      const data = await response.json();
-      setGitName(data.name || '');
-      setGitEmail(data.email || '');
-    } catch (error) {
-      console.error('Failed to load identity:', error);
-    }
-  };
+useEffect(() => {
+  loadIdentity();
+  loadAutoPushHistory();
+}, [workspacePath]);
+
+const loadIdentity = async () => {
+  if (!workspacePath) return;
+  try {
+    const res = await fetch(`${API_BASE}/repo/get-identity`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspacePath })
+    });
+    const data = await res.json();
+    setGitName(data.name || '');
+    setGitEmail(data.email || '');
+  } catch {}
+};
+
+const loadAutoPushHistory = async () => {
+  try {
+    const res = await fetch(`${API_BASE}/repo/auto-push/history`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspacePath, limit: 20 })
+    });
+    const data = await res.json();
+    setAutoPushHistory(data.jobs || []);
+  } catch {}
+};
+
+
 
   const handleSaveIdentity = async () => {
     if (!gitName.trim() || !gitEmail.trim()) {
@@ -121,6 +136,19 @@ function SettingsModal({ workspacePath, onClose, onWorkspaceChange, onLog }) {
                 Change Workspace
               </button>
             </div>
+          </div>
+
+          <div>
+            <h3 className="text-lg font-medium text-white mb-4">Auto-Push History</h3>
+            {autoPushHistory.length === 0 ? (
+              <p className="text-xs text-gray-500">No scheduled auto-push jobs yet</p>
+            ) : (
+              <ul className="text-xs text-gray-400 space-y-1">
+                {autoPushHistory.map(j => (
+                  <li key={j.job_id}>• {j.status} → {new Date(j.execute_at).toLocaleTimeString()}</li>
+                ))}
+              </ul>
+            )}
           </div>
 
           {/* Git Identity */}
