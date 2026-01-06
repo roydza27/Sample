@@ -209,8 +209,6 @@ function AutoPushPanel({ workspacePath, repoData, onLog }) {
                     <XCircle className="w-4 h-4 text-red-500" />
                   </button>
                 </div>
-                <p className="text-gray-500">Runs at: {runTimeText}</p>
-                <p className="text-primary-400">Time Remaining: {formatTime(job.timeRemaining)}</p>
               </div>
             );
           })}
