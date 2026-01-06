@@ -1,6 +1,5 @@
 import express from 'express';
 import cors from 'cors';
-import axios from "axios";
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
@@ -50,100 +49,17 @@ db.exec(`
     value TEXT
   );
 
-  CREATE TABLE IF NOT EXISTS api_metrics (
+  CREATE TABLE IF NOT EXISTS auto_push_jobs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    route TEXT,
-    method TEXT,
-    status INTEGER,
-    response_time INTEGER,
-    is_error INTEGER,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    repo_path TEXT,
+    scheduled_at TEXT,
+    execute_at TEXT,
+    status TEXT,
+    job_id TEXT UNIQUE,
+    completed_at TEXT,
+    error TEXT
   );
 `);
-
-//Metric data to be Exported to a database
-// const metrics = [];
-
-// Global middleware to track all API calls
-// app.use((req, res, next) => {
-//   const start = Date.now();
-//   res.on("finish", () => {
-//     const responseTime = Date.now() - start;
-//     const isError = res.statusCode >= 400;
-
-//     const metric = {
-//       route: req.path,
-//       method: req.method,
-//       status: res.statusCode,
-//       responseTime,
-//       isError
-//     };
-
-//     metrics.push(metric);
-//   });
-//   next();
-// });
-
-app.use((req, res, next) => {
-  const start = Date.now();
-  res.on("finish", async () => {
-    const responseTime = Date.now() - start;
-    const isError = res.statusCode >= 400;
-
-    try {
-      await axios.post("http://localhost:3002/api/metrics", {
-        route: req.originalUrl,
-        method: req.method,
-        status: res.statusCode,
-        responseTime,
-        isError,
-        sourcePort: 3001,
-      });
-      console.log(`Metric → ${req.method} ${req.originalUrl} (${responseTime}ms)`);
-    } catch {}
-  });
-  next();
-});
-
-// app.get("/api/metrics/summary", (req, res) => {
-//   const total = metrics.length;
-//   const errors = metrics.filter(m => m.isError).length;
-//   const avg = metrics.reduce((sum, m) => sum + m.responseTime, 0) / (total || 1);
-
-//   res.json({
-//     totalRequests: total,
-//     avgResponseTime: avg,
-//     errorRate: total ? (errors / total) * 100 : 0
-//   });
-// });
-
-// app.get("/api/metrics/routes", (req, res) => {
-//   const grouped = {};
-
-//   metrics.forEach(m => {
-//     if (!grouped[m.route]) {
-//       grouped[m.route] = { hits: 0, errors: 0, totalTime: 0 };
-//     }
-//     grouped[m.route].hits++;
-//     grouped[m.route].totalTime += m.responseTime;
-//     if (m.isError) grouped[m.route].errors++;
-//   });
-
-//   const stats = Object.entries(grouped).map(([route, d]) => ({
-//     route,
-//     hits: d.hits,
-//     avgResponseTime: d.totalTime / d.hits,
-//     errorPercent: (d.errors / d.hits) * 100,
-//     isSlow: (d.totalTime / d.hits) > 500
-//   }));
-
-//   res.json(stats);
-// });
-
-// app.get("/api/metrics/export", (req, res) => {
-//   res.json(metrics);
-// });
-
 
 // Helper function to execute git commands
 async function executeGit(command, cwd = null) {
@@ -158,6 +74,138 @@ async function executeGit(command, cwd = null) {
       error: error.message,
       stderr: error.stderr || ''
     };
+  }
+}
+
+// Auto-Push Scheduler System
+const autoPushJobs = new Map(); // Stores active timeout IDs
+
+async function executeAutoPush(workspacePath, jobId) {
+  console.log(`[Auto-Push] Executing job ${jobId} for ${workspacePath}`);
+  
+  try {
+    // Update job status to running
+    db.prepare(`
+      UPDATE auto_push_jobs 
+      SET status = 'running' 
+      WHERE job_id = ?
+    `).run(jobId);
+
+    // Check if repo still exists and has remote
+    const remoteResult = await executeGit('git remote get-url origin', workspacePath);
+    if (!remoteResult.success) {
+      throw new Error('No remote repository configured');
+    }
+
+    // Stage all changes
+    const addResult = await executeGit('git add .', workspacePath);
+    if (!addResult.success) {
+      throw new Error('Failed to stage files: ' + addResult.error);
+    }
+
+    // Check if there are changes to commit
+    const statusResult = await executeGit('git status --porcelain', workspacePath);
+    if (!statusResult.output || statusResult.output.trim() === '') {
+      console.log(`[Auto-Push] No changes to commit for job ${jobId}`);
+      
+      db.prepare(`
+        UPDATE auto_push_jobs 
+        SET status = 'completed', completed_at = ?, error = ?
+        WHERE job_id = ?
+      `).run(new Date().toISOString(), 'No changes to commit', jobId);
+      
+      autoPushJobs.delete(jobId);
+      return;
+    }
+
+    // Get current branch
+    const branchResult = await executeGit('git rev-parse --abbrev-ref HEAD', workspacePath);
+    const currentBranch = branchResult.success ? branchResult.output : 'main';
+
+    // Create timestamp for commit message
+    const timestamp = new Date().toLocaleString('en-US', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
+
+    // Commit with auto-generated message
+    const commitMessage = `Auto push at ${timestamp}`;
+    const commitResult = await executeGit(`git commit -m "${commitMessage}"`, workspacePath);
+    
+    if (!commitResult.success) {
+      throw new Error('Failed to commit: ' + commitResult.error);
+    }
+
+    // Get commit hash
+    const hashResult = await executeGit('git rev-parse HEAD', workspacePath);
+    const commitHash = hashResult.success ? hashResult.output : 'unknown';
+
+    // Get diff stats
+    const diffResult = await executeGit('git diff HEAD~1 HEAD --shortstat', workspacePath);
+    let filesChanged = 0, linesAdded = 0, linesRemoved = 0;
+    
+    if (diffResult.output) {
+      const match = diffResult.output.match(/(\d+) file[s]? changed(?:, (\d+) insertion[s]?\(\+\))?(?:, (\d+) deletion[s]?\(-\))?/);
+      if (match) {
+        filesChanged = parseInt(match[1]) || 0;
+        linesAdded = parseInt(match[2]) || 0;
+        linesRemoved = parseInt(match[3]) || 0;
+      }
+    }
+
+    // Push to remote
+    const pushResult = await executeGit(`git push origin ${currentBranch}`, workspacePath);
+    
+    if (!pushResult.success) {
+      throw new Error('Failed to push: ' + pushResult.error);
+    }
+
+    // Save commit to database
+    db.prepare(`
+      INSERT INTO commits (repo_path, commit_hash, commit_message, timestamp, files_count, push_success)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(workspacePath, commitHash, commitMessage, new Date().toISOString(), filesChanged, 1);
+
+    // Log analytics
+    db.prepare(`
+      INSERT INTO analytics (repo_path, timestamp, action, files_changed, lines_added, lines_removed, success)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      workspacePath,
+      new Date().toISOString(),
+      'auto_push',
+      filesChanged,
+      linesAdded,
+      linesRemoved,
+      1
+    );
+
+    // Update job status to completed
+    db.prepare(`
+      UPDATE auto_push_jobs 
+      SET status = 'completed', completed_at = ?
+      WHERE job_id = ?
+    `).run(new Date().toISOString(), jobId);
+
+    console.log(`[Auto-Push] Job ${jobId} completed successfully`);
+    
+  } catch (error) {
+    console.error(`[Auto-Push] Job ${jobId} failed:`, error.message);
+    
+    // Update job status to failed
+    db.prepare(`
+      UPDATE auto_push_jobs 
+      SET status = 'failed', completed_at = ?, error = ?
+      WHERE job_id = ?
+    `).run(new Date().toISOString(), error.message, jobId);
+  } finally {
+    // Remove job from active jobs
+    autoPushJobs.delete(jobId);
   }
 }
 
@@ -322,12 +370,6 @@ app.post('/api/repo/status', async (req, res) => {
 
   res.json({ files });
 });
-
-
-
-
-
-
 
 // API: Get diff summary
 app.post('/api/repo/diff', async (req, res) => {
@@ -678,7 +720,7 @@ app.get('/api/analytics', (req, res) => {
     `).get();
     
     // Get remote switches
-    const remoteSwitches = db.prepare("SELECT COUNT(*) as count FROM analytics WHERE action = 'remote_switch'").get();
+    const remoteSwitches = db.prepare('SELECT COUNT(*) as count FROM analytics WHERE action = "remote_switch"').get();
     
     // Get commit streak (simplified)
     const recentCommits = db.prepare(`
@@ -893,14 +935,360 @@ app.post('/api/ai/explain-error', (req, res) => {
   res.json({ explanation });
 });
 
-app.get("/api/repo/status", (req, res) => {
-  res.json({ message: "Repo status API alive" });
+// ========================================
+// AUTO-PUSH SCHEDULER ENDPOINTS
+// ========================================
+
+// API: Immediate auto-push execution (for background worker)
+app.post('/api/repo/auto-push-execute', async (req, res) => {
+  const { workspacePath } = req.body;
+
+  try {
+    // Validate repository exists
+    const gitPath = path.join(workspacePath, '.git');
+    const exists = await fs.access(gitPath).then(() => true).catch(() => false);
+    if (!exists) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Not a Git repository' 
+      });
+    }
+
+    // Check remote exists
+    const remoteResult = await executeGit('git remote get-url origin', workspacePath);
+    if (!remoteResult.success) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'No remote repository configured' 
+      });
+    }
+
+    // Stage all changes
+    const addResult = await executeGit('git add .', workspacePath);
+    if (!addResult.success) {
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Failed to stage files: ' + addResult.error 
+      });
+    }
+
+    // Check if there are changes to commit
+    const statusResult = await executeGit('git status --porcelain', workspacePath);
+    if (!statusResult.output || statusResult.output.trim() === '') {
+      return res.json({ 
+        success: true, 
+        committed: false,
+        message: 'No changes to commit' 
+      });
+    }
+
+    // Get current branch
+    const branchResult = await executeGit('git rev-parse --abbrev-ref HEAD', workspacePath);
+    const currentBranch = branchResult.success ? branchResult.output : 'main';
+
+    // Get diff stats
+    const diffResult = await executeGit('git diff --cached --shortstat', workspacePath);
+    let filesChanged = 0, linesAdded = 0, linesRemoved = 0;
+    
+    if (diffResult.output) {
+      const match = diffResult.output.match(/(\d+) file[s]? changed(?:, (\d+) insertion[s]?\(\+\))?(?:, (\d+) deletion[s]?\(-\))?/);
+      if (match) {
+        filesChanged = parseInt(match[1]) || 0;
+        linesAdded = parseInt(match[2]) || 0;
+        linesRemoved = parseInt(match[3]) || 0;
+      }
+    }
+
+    // Create auto-generated commit message with timestamp
+    const timestamp = new Date().toLocaleString('en-US', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
+    const commitMessage = `Auto push at ${timestamp}`;
+
+    // Commit
+    const commitResult = await executeGit(`git commit -m "${commitMessage}"`, workspacePath);
+    if (!commitResult.success) {
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Failed to commit: ' + commitResult.error 
+      });
+    }
+
+    // Get commit hash
+    const hashResult = await executeGit('git rev-parse HEAD', workspacePath);
+    const commitHash = hashResult.success ? hashResult.output : 'unknown';
+
+    // Push to remote
+    const pushResult = await executeGit(`git push origin ${currentBranch}`, workspacePath);
+    
+    if (!pushResult.success) {
+      // Commit succeeded but push failed - still log it
+      db.prepare(`
+        INSERT INTO commits (repo_path, commit_hash, commit_message, timestamp, files_count, push_success)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(workspacePath, commitHash, commitMessage, new Date().toISOString(), filesChanged, 0);
+
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Push failed: ' + pushResult.error,
+        committed: true,
+        commitHash
+      });
+    }
+
+    // Save commit to database
+    db.prepare(`
+      INSERT INTO commits (repo_path, commit_hash, commit_message, timestamp, files_count, push_success)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(workspacePath, commitHash, commitMessage, new Date().toISOString(), filesChanged, 1);
+
+    // Log analytics
+    db.prepare(`
+      INSERT INTO analytics (repo_path, timestamp, action, files_changed, lines_added, lines_removed, success)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      workspacePath,
+      new Date().toISOString(),
+      'auto_push',
+      filesChanged,
+      linesAdded,
+      linesRemoved,
+      1
+    );
+
+    res.json({
+      success: true,
+      committed: true,
+      pushed: true,
+      commitHash,
+      filesChanged,
+      linesAdded,
+      linesRemoved,
+      message: `Auto-pushed ${filesChanged} files to ${currentBranch}`
+    });
+
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
 });
 
-app.get("/api/test/fast", (req, res) => res.send("Fast"));
-app.get("/api/test/slow", (req, res) => setTimeout(() => res.send("Slow"), 900));
-app.get("/api/test/error", (req, res) => res.status(500).send("Fail"));
+// API: Schedule auto-push
+app.post('/api/repo/auto-push', async (req, res) => {
+  const { workspacePath, delayMinutes = 10 } = req.body;
+  
+  try {
+    // Validate repository
+    const gitPath = path.join(workspacePath, '.git');
+    const exists = await fs.access(gitPath).then(() => true).catch(() => false);
+    
+    if (!exists) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Not a Git repository' 
+      });
+    }
 
+    // Check if remote exists
+    const remoteResult = await executeGit('git remote get-url origin', workspacePath);
+    if (!remoteResult.success) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'No remote repository configured. Add a remote first.' 
+      });
+    }
+
+    // Generate unique job ID
+    const jobId = `autopush_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Calculate execution time
+    const scheduledAt = new Date();
+    const executeAt = new Date(scheduledAt.getTime() + delayMinutes * 60 * 1000);
+    
+    // Save job to database
+    db.prepare(`
+      INSERT INTO auto_push_jobs (repo_path, scheduled_at, execute_at, status, job_id)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(
+      workspacePath,
+      scheduledAt.toISOString(),
+      executeAt.toISOString(),
+      'scheduled',
+      jobId
+    );
+
+    // Schedule the auto-push
+    const timeoutId = setTimeout(() => {
+      executeAutoPush(workspacePath, jobId);
+    }, delayMinutes * 60 * 1000);
+
+    // Store timeout ID for potential cancellation
+    autoPushJobs.set(jobId, {
+      timeoutId,
+      workspacePath,
+      scheduledAt,
+      executeAt
+    });
+
+    console.log(`[Auto-Push] Scheduled job ${jobId} for ${workspacePath} (in ${delayMinutes} minutes)`);
+
+    res.json({
+      success: true,
+      message: `Auto-push scheduled for ${delayMinutes} minutes from now`,
+      jobId,
+      scheduledAt: scheduledAt.toISOString(),
+      executeAt: executeAt.toISOString(),
+      delayMinutes
+    });
+
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// API: Cancel scheduled auto-push
+app.post('/api/repo/auto-push/cancel', (req, res) => {
+  const { jobId } = req.body;
+  
+  try {
+    const job = autoPushJobs.get(jobId);
+    
+    if (!job) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Job not found or already executed' 
+      });
+    }
+
+    // Clear the timeout
+    clearTimeout(job.timeoutId);
+    autoPushJobs.delete(jobId);
+
+    // Update database
+    db.prepare(`
+      UPDATE auto_push_jobs 
+      SET status = 'cancelled', completed_at = ?
+      WHERE job_id = ?
+    `).run(new Date().toISOString(), jobId);
+
+    console.log(`[Auto-Push] Cancelled job ${jobId}`);
+
+    res.json({ 
+      success: true, 
+      message: 'Auto-push cancelled successfully' 
+    });
+
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// API: Get active auto-push jobs
+app.get('/api/repo/auto-push/active', (req, res) => {
+  try {
+    const activeJobs = Array.from(autoPushJobs.entries()).map(([jobId, job]) => ({
+      jobId,
+      workspacePath: job.workspacePath,
+      scheduledAt: job.scheduledAt,
+      executeAt: job.executeAt,
+      status: 'scheduled',
+      timeRemaining: Math.max(0, Math.floor((job.executeAt - new Date()) / 1000))
+    }));
+
+    res.json({ 
+      success: true, 
+      jobs: activeJobs,
+      count: activeJobs.length
+    });
+
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// API: Get auto-push history
+app.post('/api/repo/auto-push/history', (req, res) => {
+  const { workspacePath, limit = 20 } = req.body;
+  
+  try {
+    let query = `
+      SELECT * FROM auto_push_jobs 
+    `;
+    
+    if (workspacePath) {
+      query += ` WHERE repo_path = ? `;
+    }
+    
+    query += `
+      ORDER BY scheduled_at DESC 
+      LIMIT ?
+    `;
+
+    const stmt = workspacePath 
+      ? db.prepare(query)
+      : db.prepare(query);
+    
+    const jobs = workspacePath 
+      ? stmt.all(workspacePath, limit)
+      : stmt.all(limit);
+
+    res.json({ 
+      success: true, 
+      jobs,
+      count: jobs.length
+    });
+
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// API: Get auto-push statistics
+app.get('/api/repo/auto-push/stats', (req, res) => {
+  try {
+    const total = db.prepare('SELECT COUNT(*) as count FROM auto_push_jobs').get();
+    const completed = db.prepare('SELECT COUNT(*) as count FROM auto_push_jobs WHERE status = "completed"').get();
+    const failed = db.prepare('SELECT COUNT(*) as count FROM auto_push_jobs WHERE status = "failed"').get();
+    const cancelled = db.prepare('SELECT COUNT(*) as count FROM auto_push_jobs WHERE status = "cancelled"').get();
+    const active = autoPushJobs.size;
+
+    res.json({
+      success: true,
+      total: total.count || 0,
+      completed: completed.count || 0,
+      failed: failed.count || 0,
+      cancelled: cancelled.count || 0,
+      active: active,
+      scheduled: active
+    });
+
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`✅ RepoSense server running on http://localhost:${PORT}`);
