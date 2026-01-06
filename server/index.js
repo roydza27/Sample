@@ -711,12 +711,12 @@ app.get('/api/analytics', (req, res) => {
     const successfulPushes = db.prepare('SELECT COUNT(*) as count FROM commits WHERE push_success = 1').get();
     
     // Get total files changed
-    const totalFiles = db.prepare('SELECT SUM(files_changed) as total FROM analytics WHERE action = "commit_push"').get();
+    const totalFiles = db.prepare("SELECT SUM(files_changed) as total FROM analytics WHERE action = 'commit_push'").get();
     
     // Get total lines
     const totalLines = db.prepare(`
       SELECT SUM(lines_added) as added, SUM(lines_removed) as removed 
-      FROM analytics WHERE action = "commit_push"
+      FROM analytics WHERE action = 'commit_push'
     `).get();
     
     // Get remote switches
