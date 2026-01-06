@@ -192,21 +192,27 @@ function AutoPushPanel({ workspacePath, repoData, onLog }) {
         <div className="card">
           <h3 className="text-sm font-semibold text-white mb-3">Active Jobs ({activeJobs.length})</h3>
 
-          {activeJobs.map(job => (
-            <div key={job.jobId} className="bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs mt-2">
+          {activeJobs.map(job => {
+          const runTime = job.execute_at ? new Date(job.execute_at) : null;
+          const runTimeText = runTime && !isNaN(runTime) ? formatDateTime(job.execute_at) : "Invalid Date";
+
+          return (
+              <div key={job.jobId} className="bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs mt-2">
               <div className="flex items-center justify-between">
-                <span className="flex items-center space-x-2">
+                  <span className="flex items-center space-x-2">
                   {getStatusIcon(job.status)}
                   <span>{job.status}</span>
-                </span>
-                <button onClick={() => handleCancelJob(job.jobId)}>
+                  </span>
+                  <button onClick={() => handleCancelJob(job.jobId)}>
                   <XCircle className="w-4 h-4 text-red-500" />
-                </button>
+                  </button>
               </div>
-              <p className="text-gray-500">Runs at: {formatDateTime(job.executeAt)}</p>
-              <p className="text-primary-400">Time Remaining: {formatTime(job.timeRemaining)}</p>
-            </div>
-          ))}
+              <p className="text-gray-500">Runs at: {runTimeText}</p>
+              <p className="text-primary-400">Time Remaining: {job.timeRemaining ?? "0s"}</p>
+              </div>
+          );
+          })}
+
         </div>
       )}
 
