@@ -6,6 +6,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import Database from 'better-sqlite3';
+import fetch from 'node-fetch';
 
 const execAsync = promisify(exec);
 const app = express();
@@ -1291,6 +1292,47 @@ app.get('/api/repo/auto-push/stats', (req, res) => {
     });
   }
 });
+
+function startAutoPushWorker(workspacePath, minutes) {
+  const interval = setInterval(async () => {
+    console.log(`[Auto-Push] Running for ${workspacePath}`);
+
+    try {
+      // Get active branch from Git
+      const branchRes = await executeGit('git rev-parse --abbrev-ref HEAD', workspacePath);
+      const branch = branchRes.success ? branchRes.output : 'main';
+
+      // Call AI suggest API
+      const aiRes = await fetch(`http://localhost:3001/api/ai/suggest-commit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspacePath })
+      });
+
+      const aiData = await aiRes.json();
+      const commitMsg = aiData.suggestion || "Synced changes";
+
+      await executeGit('git add .', workspacePath);
+      await executeGit(`git commit -m "${commitMsg}"`, workspacePath);
+      await executeGit(`git push origin ${branch}`, workspacePath);
+
+      console.log(`[Auto-Push] Success on branch ${branch}`);
+    } catch (e) {
+      console.log(`[Auto-Push] Failed: ${e.message}`);
+    }
+
+  }, minutes * 60 * 1000);
+
+  autoPushJobs.set(workspacePath, interval); // store interval if you want cancel later
+}
+
+app.post('/api/repo/auto-loop', (req, res) => {
+  const { workspacePath, intervalMinutes } = req.body;
+  startAutoPushWorker(workspacePath, intervalMinutes);
+  res.json({ success: true, message: "Auto-loop started" });
+});
+
+
 
 app.listen(PORT, () => {
   console.log(`✅ RepoSense server running on http://localhost:${PORT}`);
