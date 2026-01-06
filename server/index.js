@@ -11,6 +11,8 @@ const execAsync = promisify(exec);
 const app = express();
 const PORT = 3001;
 
+let repoCache = null;
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -212,31 +214,30 @@ async function executeAutoPush(workspacePath, jobId) {
 // API: Check if workspace is a Git repo
 app.post('/api/repo/detect', async (req, res) => {
   const { workspacePath } = req.body;
-  
+
   try {
     const gitPath = path.join(workspacePath, '.git');
     const exists = await fs.access(gitPath).then(() => true).catch(() => false);
-    
+
     if (!exists) {
       return res.json({ isRepo: false, message: 'No .git directory found' });
     }
 
-    // Get repo name
     const repoName = path.basename(workspacePath);
-    
-    // Get current branch
-    const branchResult = await executeGit('git rev-parse --abbrev-ref HEAD', workspacePath);
-    const currentBranch = branchResult.success ? branchResult.output : 'unknown';
 
-    // Get remote URL
+    const branchResult = await executeGit('git rev-parse --abbrev-ref HEAD', workspacePath);
+    const currentBranch = branchResult.success ? branchResult.output : 'main';
+
     const remoteResult = await executeGit('git remote get-url origin', workspacePath);
     const remoteUrl = remoteResult.success ? remoteResult.output : 'Not configured';
 
-    // Get all branches
     const branchesResult = await executeGit('git branch', workspacePath);
-    const branches = branchesResult.success 
+    const branches = branchesResult.success
       ? branchesResult.output.split('\n').map(b => b.trim().replace('* ', ''))
       : [];
+
+    // cache the branch for auto-loop worker
+    repoCache = { repoName, currentBranch };
 
     res.json({
       isRepo: true,
@@ -245,8 +246,9 @@ app.post('/api/repo/detect', async (req, res) => {
       remoteUrl,
       branches
     });
+
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ isRepo: false, error: error.message });
   }
 });
 
@@ -720,7 +722,7 @@ app.get('/api/analytics', (req, res) => {
     `).get();
     
     // Get remote switches
-    const remoteSwitches = db.prepare('SELECT COUNT(*) as count FROM analytics WHERE action = "remote_switch"').get();
+    const remoteSwitches = db.prepare("SELECT COUNT(*) as count FROM analytics WHERE action = 'remote_switch'").get();
     
     // Get commit streak (simplified)
     const recentCommits = db.prepare(`

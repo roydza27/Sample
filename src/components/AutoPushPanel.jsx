@@ -63,7 +63,7 @@ function AutoPushPanel({ workspacePath, repoData, onLog }) {
       }
     } catch (error) {
       console.error('Failed to load stats:', error);
-    }
+    } 
   };
 
   const handleScheduleAutoPush = async () => {
@@ -100,6 +100,37 @@ function AutoPushPanel({ workspacePath, repoData, onLog }) {
       setIsScheduling(false);
     }
   };
+
+const handleStartAutoPushLoop = async () => {
+  if (!workspacePath || !repoData) {
+    onLog('✗ Repository not detected', 'error');
+    return;
+  }
+
+  setIsScheduling(true);
+  onLog('Starting auto-push loop (every 10 minutes)...', 'info');
+
+  try {
+    const response = await fetch(`${API_BASE}/repo/auto-loop`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspacePath, intervalMinutes: 10 })
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      onLog('Auto-push loop started successfully', 'success');
+    } else {
+      onLog(`Auto-push loop failed to start: ${data.error}`, 'error');
+    }
+  } catch (error) {
+    onLog(`Auto-push loop error: ${error.message}`, 'error');
+  } finally {
+    setIsScheduling(false);
+  }
+};
+
 
   const handleCancelJob = async (jobId) => {
     onLog(`Cancelling auto-push job...`, 'info');
@@ -209,6 +240,15 @@ function AutoPushPanel({ workspacePath, repoData, onLog }) {
             <p className="text-xs text-gray-500 mt-1">
               Recommended: 10 minutes • Max: 120 minutes
             </p>
+            <button
+            onClick={handleStartAutoPushLoop}
+            disabled={isScheduling}
+            className="btn-primary w-full flex items-center justify-center space-x-2"
+            >
+            <Zap className="w-4 h-4" />
+            <span>Start Auto-Push Loop</span>
+            </button>
+
           </div>
 
           <button
