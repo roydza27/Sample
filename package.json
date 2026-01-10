@@ -4,12 +4,13 @@
   "description": "AI-powered GitHub control center with analytics and automation",
   "type": "module",
   "scripts": {
+
+    "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
+    "dev:frontend": "vite --port 3000 --host",
+    "dev:backend": "node --watch server/index.js",
     "server": "node server/index.js",
-    "client": "vite",
     "build": "vite build",
-    "preview": "vite preview",
-    "dev": "vite --port 3000 --host",
-    "test:server": "node server/index.js"
+    "preview": "vite preview"
   },
   "dependencies": {
     "axios": "^1.13.2",
