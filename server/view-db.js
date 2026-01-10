@@ -2,12 +2,13 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Using 'reposense.db' because it is the one with 24KB of data
 const dbPath = path.resolve(__dirname, 'reposense.db'); 
 
 const db = new Database(dbPath, { readonly: true });
-
 console.log(`\n--- 📜 READING FROM: ${dbPath} ---`);
 
 try {

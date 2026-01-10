@@ -29,3 +29,4 @@ See the `LICENSE` file for full terms.
 
 This is a personal, open-source project.  
 RepoSense contributors are **not liable** for issues in this modified version.
+

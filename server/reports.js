@@ -12,6 +12,7 @@ export function getRemoteSwitchCount() {
     }
 }
 
+
 // To use it:
 const totalSwitches = getRemoteSwitchCount();
 console.log(`Total Remote Switches: ${totalSwitches}`);
